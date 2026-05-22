@@ -448,13 +448,13 @@ export default function VenderPage() {
       {totalQty > 0 && (
         <>
           <div style={{
-            position: 'fixed', bottom: 172,
+            position: 'fixed', bottom: 'calc(172px + env(safe-area-inset-bottom, 0px))',
             left: 0, right: 0, height: 72,
             background: 'linear-gradient(to bottom, transparent, rgba(10,8,7,.95))',
             zIndex: 19, pointerEvents: 'none',
           }} />
           <div style={{
-            position: 'fixed', bottom: 112,
+            position: 'fixed', bottom: 'calc(112px + env(safe-area-inset-bottom, 0px))',
             left: '50%', transform: 'translateX(-50%)',
             width: 'calc(100% - 28px)', maxWidth: 416,
             padding: '14px 14px',
