@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { prisma } from '@/lib/db/client'
 
 const clienteSchema = z.object({
   nome: z.string().min(1),
@@ -9,36 +8,52 @@ const clienteSchema = z.object({
 })
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
-  if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    const { data: dbUser } = await supabase.from('users').select('tenantId').eq('id', user.id).single()
+    if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  const clientes = await prisma.cliente.findMany({
-    where: { tenantId: dbUser.tenantId, ativo: true },
-    orderBy: { nome: 'asc' },
-  })
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('*')
+      .eq('tenantId', dbUser.tenantId)
+      .eq('ativo', true)
+      .order('nome')
 
-  return NextResponse.json(clientes)
+    if (error) throw error
+    return NextResponse.json(data)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const parsed = clienteSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+    const body = await req.json()
+    const parsed = clienteSchema.safeParse(body)
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
-  if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    const { data: dbUser } = await supabase.from('users').select('tenantId').eq('id', user.id).single()
+    if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  const cliente = await prisma.cliente.create({
-    data: { tenantId: dbUser.tenantId, ...parsed.data },
-  })
+    const { data, error } = await supabase
+      .from('clientes')
+      .insert({ tenantId: dbUser.tenantId, ...parsed.data })
+      .select()
+      .single()
 
-  return NextResponse.json(cliente, { status: 201 })
+    if (error) throw error
+    return NextResponse.json(data, { status: 201 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }

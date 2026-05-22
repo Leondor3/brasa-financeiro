@@ -1,8 +1,8 @@
-import { prisma } from '@/lib/db/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns'
 import { getEstoqueAtual } from '@/lib/utils/lucro'
 
-export async function getDashboardData(tenantId: string) {
+export async function getDashboardData(tenantId: string, sb: SupabaseClient) {
   const agora = new Date()
   const hoje = startOfDay(agora)
   const fimDoDia = endOfDay(agora)
@@ -10,67 +10,67 @@ export async function getDashboardData(tenantId: string) {
   const inicioMes = startOfMonth(agora)
 
   const [
-    vendasHoje,
-    gastosHoje,
-    fiadoAberto,
-    topProdutosSemana,
+    { data: creditosHoje },
+    { data: debitosHoje },
+    { data: fiadosAbertos },
+    { data: topProdutos },
     estoque,
-    faturamentoDiarioSemana,
-    totalVendasMes,
+    { data: faturamentoDiario },
+    { data: vendasMes },
   ] = await Promise.all([
-    prisma.ledgerEntry.aggregate({
-      where: { tenantId, direcao: 'CREDITO', tipo: 'VENDA', ocorridoEm: { gte: hoje, lte: fimDoDia } },
-      _sum: { valor: true },
+    sb
+      .from('ledger_entries')
+      .select('valor')
+      .eq('tenantId', tenantId)
+      .eq('direcao', 'CREDITO')
+      .eq('tipo', 'VENDA')
+      .gte('ocorridoEm', hoje.toISOString())
+      .lte('ocorridoEm', fimDoDia.toISOString()),
+
+    sb
+      .from('ledger_entries')
+      .select('valor')
+      .eq('tenantId', tenantId)
+      .eq('direcao', 'DEBITO')
+      .gte('ocorridoEm', hoje.toISOString())
+      .lte('ocorridoEm', fimDoDia.toISOString()),
+
+    sb
+      .from('fiados')
+      .select('valorOriginal,valorPago')
+      .eq('tenantId', tenantId)
+      .in('status', ['ABERTO', 'PARCIAL']),
+
+    sb.rpc('get_top_produtos_semana', {
+      p_tenant_id: tenantId,
+      p_inicio_semana: inicioSemana.toISOString(),
     }),
 
-    prisma.ledgerEntry.aggregate({
-      where: { tenantId, direcao: 'DEBITO', ocorridoEm: { gte: hoje, lte: fimDoDia } },
-      _sum: { valor: true },
+    getEstoqueAtual(tenantId, sb),
+
+    sb.rpc('get_faturamento_diario_semana', {
+      p_tenant_id: tenantId,
+      p_inicio_semana: inicioSemana.toISOString(),
     }),
 
-    prisma.fiado.aggregate({
-      where: { tenantId, status: { in: ['ABERTO', 'PARCIAL'] } },
-      _sum: { valorOriginal: true, valorPago: true },
-    }),
-
-    prisma.$queryRaw<Array<{ nome: string; qtd: string; receita: string }>>`
-      SELECT p.nome, SUM(iv.quantidade)::text AS qtd, SUM(iv.subtotal)::text AS receita
-      FROM item_vendas iv
-      JOIN produtos p ON iv."produtoId" = p.id
-      JOIN vendas v ON iv."vendaId" = v.id
-      WHERE v."tenantId" = ${tenantId}
-        AND v."vendidoEm" >= ${inicioSemana}
-        AND v.status = 'PAGA'
-      GROUP BY p.id, p.nome
-      ORDER BY receita DESC
-      LIMIT 5
-    `,
-
-    getEstoqueAtual(tenantId),
-
-    prisma.$queryRaw<Array<{ dia: string; valor: string }>>`
-      SELECT DATE("vendidoEm")::text AS dia, SUM(total)::text AS valor
-      FROM vendas
-      WHERE "tenantId" = ${tenantId}
-        AND "vendidoEm" >= ${inicioSemana}
-        AND status = 'PAGA'
-      GROUP BY DATE("vendidoEm")
-      ORDER BY dia
-    `,
-
-    prisma.venda.aggregate({
-      where: { tenantId, status: 'PAGA', vendidoEm: { gte: inicioMes } },
-      _sum: { total: true },
-      _count: true,
-    }),
+    sb
+      .from('vendas')
+      .select('total')
+      .eq('tenantId', tenantId)
+      .eq('status', 'PAGA')
+      .gte('vendidoEm', inicioMes.toISOString()),
   ])
 
-  const receitaHoje = Number(vendasHoje._sum.valor ?? 0)
-  const gastosHojeVal = Number(gastosHoje._sum.valor ?? 0)
-  const fiadoPendente =
-    Number(fiadoAberto._sum.valorOriginal ?? 0) - Number(fiadoAberto._sum.valorPago ?? 0)
-  const faturamentoPotencialEstoque = estoque.reduce((s, e) => s + e.faturamentoPotencial, 0)
-  const lucroPotencialEstoque = estoque.reduce((s, e) => s + e.lucroPotencial, 0)
+  const receitaHoje = (creditosHoje ?? []).reduce((s: number, r: { valor: unknown }) => s + Number(r.valor), 0)
+  const gastosHojeVal = (debitosHoje ?? []).reduce((s: number, r: { valor: unknown }) => s + Number(r.valor), 0)
+  const fiadoPendente = (fiadosAbertos ?? []).reduce(
+    (s: number, f: { valorOriginal: unknown; valorPago: unknown }) =>
+      s + Number(f.valorOriginal) - Number(f.valorPago),
+    0
+  )
+  const totalVendasMes = (vendasMes ?? []).reduce((s: number, v: { total: unknown }) => s + Number(v.total), 0)
+  const faturamentoPotencialEstoque = estoque.reduce((s: number, e: { faturamentoPotencial: number }) => s + e.faturamentoPotencial, 0)
+  const lucroPotencialEstoque = estoque.reduce((s: number, e: { lucroPotencial: number }) => s + e.lucroPotencial, 0)
 
   return {
     hoje: {
@@ -79,8 +79,8 @@ export async function getDashboardData(tenantId: string) {
       lucro: receitaHoje - gastosHojeVal,
     },
     mes: {
-      faturamento: Number(totalVendasMes._sum.total ?? 0),
-      numVendas: totalVendasMes._count,
+      faturamento: totalVendasMes,
+      numVendas: (vendasMes ?? []).length,
     },
     fiado: { pendente: fiadoPendente },
     estoque: {
@@ -88,13 +88,13 @@ export async function getDashboardData(tenantId: string) {
       faturamentoPotencial: faturamentoPotencialEstoque,
       lucroPotencial: lucroPotencialEstoque,
     },
-    topProdutos: topProdutosSemana.map((p) => ({
+    topProdutos: (topProdutos ?? []).map((p: { nome: string; qtd: unknown; receita: unknown }) => ({
       nome: p.nome,
       qtd: Number(p.qtd),
       receita: Number(p.receita),
     })),
     graficos: {
-      semanal: faturamentoDiarioSemana.map((r) => ({
+      semanal: (faturamentoDiario ?? []).map((r: { dia: string; valor: unknown }) => ({
         dia: r.dia,
         valor: Number(r.valor),
       })),

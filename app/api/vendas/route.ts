@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { prisma } from '@/lib/db/client'
 import { registrarVendaComLedger } from '@/lib/utils/lucro'
 
 const itemSchema = z.object({
@@ -19,43 +18,53 @@ const vendaSchema = z.object({
 })
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const parsed = vendaSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+    const body = await req.json()
+    const parsed = vendaSchema.safeParse(body)
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
-  if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    const { data: dbUser } = await supabase.from('users').select('id,tenantId').eq('id', user.id).single()
+    if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  const venda = await registrarVendaComLedger(dbUser.tenantId, dbUser.id, parsed.data)
-  return NextResponse.json(venda, { status: 201 })
+    const venda = await registrarVendaComLedger(dbUser.tenantId, dbUser.id, parsed.data, supabase)
+    return NextResponse.json(venda, { status: 201 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[vendas] error:', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
-  if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    const { data: dbUser } = await supabase.from('users').select('id,tenantId').eq('id', user.id).single()
+    if (!dbUser) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  const { searchParams } = new URL(req.url)
-  const page = Number(searchParams.get('page') ?? 1)
-  const limit = Number(searchParams.get('limit') ?? 20)
+    const { searchParams } = new URL(req.url)
+    const page = Number(searchParams.get('page') ?? 1)
+    const limit = Number(searchParams.get('limit') ?? 20)
+    const from = (page - 1) * limit
+    const to = from + limit - 1
 
-  const [vendas, total] = await Promise.all([
-    prisma.venda.findMany({
-      where: { tenantId: dbUser.tenantId },
-      include: { itens: { include: { produto: true } }, cliente: true },
-      orderBy: { vendidoEm: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-    prisma.venda.count({ where: { tenantId: dbUser.tenantId } }),
-  ])
+    const { data: vendas, count, error } = await supabase
+      .from('vendas')
+      .select('*,item_vendas(*,produtos(*)),clientes(*)', { count: 'exact' })
+      .eq('tenantId', dbUser.tenantId)
+      .order('vendidoEm', { ascending: false })
+      .range(from, to)
 
-  return NextResponse.json({ vendas, total, page, limit })
+    if (error) throw error
+    return NextResponse.json({ vendas, total: count ?? 0, page, limit })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
