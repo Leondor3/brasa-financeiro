@@ -26,7 +26,7 @@ export async function GET() {
     if (error) throw error
     return NextResponse.json(data)
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (error) throw error
     return NextResponse.json(data, { status: 201 })
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

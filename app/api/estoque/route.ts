@@ -14,7 +14,7 @@ export async function GET() {
     const estoque = await getEstoqueAtual(dbUser.tenantId, supabase)
     return NextResponse.json(estoque)
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

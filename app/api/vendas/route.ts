@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const venda = await registrarVendaComLedger(dbUser.tenantId, dbUser.id, parsed.data, supabase)
     return NextResponse.json(venda, { status: 201 })
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     console.error('[vendas] error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
     if (error) throw error
     return NextResponse.json({ vendas, total: count ?? 0, page, limit })
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

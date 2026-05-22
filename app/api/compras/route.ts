@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const compra = await registrarCompraComLedger(dbUser.tenantId, parsed.data, supabase)
     return NextResponse.json(compra, { status: 201 })
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     if (error) throw error
     return NextResponse.json(data)
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
