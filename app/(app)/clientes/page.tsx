@@ -159,14 +159,12 @@ function AddClienteSheet({ onClose }: { onClose: () => void }) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Não autenticado')
-      const { error } = await supabase.from('clientes').insert({
-        user_id: user.id,
-        nome: nome.trim(),
-        telefone: tel.trim() || null,
+      const res = await fetch('/api/clientes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: nome.trim(), telefone: tel.trim() || undefined }),
       })
-      if (error) throw error
+      if (!res.ok) throw new Error(await res.text())
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clientes'] })
@@ -509,60 +507,43 @@ function FiadoCard({ f, onReceber }: { f: FiadoItem; onReceber: () => void }) {
 export default function ClientesPage() {
   const qc = useQueryClient()
   const [addSheet, setAddSheet] = useState(false)
-  const [configSheet, setConfigSheet] = useState(false)
   const [selectedCliente, setSelectedCliente] = useState<ClienteData | null>(null)
   const [search, setSearch] = useState('')
 
-  // Load fidelidade config
-  const { data: fidConfig } = useQuery({
-    queryKey: ['fidelidade_config'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('fidelidade_config').select('*').maybeSingle()
-      if (error) throw error
-      return data
-    },
-  })
+  const meta = 10
+  const descricao = '1 espetinho grátis'
 
-  const meta = fidConfig?.selos_para_recompensa ?? 10
-  const descricao = fidConfig?.descricao_recompensa ?? '1 espetinho grátis'
-
-  // Load all clients with their stamp data
+  // Load all clients with their purchase data
   const { data: clientes = [], isLoading } = useQuery({
     queryKey: ['clientes'],
     queryFn: async () => {
       const [
         { data: cli, error: ce },
         { data: vendas, error: ve },
-        { data: recomp, error: re },
       ] = await Promise.all([
         supabase.from('clientes').select('id, nome, telefone, createdAt').order('nome'),
-        supabase.from('vendas').select('id, total, cliente_id, item_vendas(quantidade)').not('cliente_id', 'is', null),
-        supabase.from('recompensas').select('cliente_id, selos_utilizados'),
+        supabase.from('vendas').select('id, total, clienteId, item_vendas(quantidade)').not('clienteId', 'is', null),
       ])
-      if (ce) throw ce; if (ve) throw ve; if (re) throw re
+      if (ce) throw ce; if (ve) throw ve
 
       return cli!.map(c => {
-        const cVendas = vendas!.filter(v => v.cliente_id === c.id)
+        const cVendas = vendas!.filter((v: { clienteId: string; total: number; item_vendas: unknown }) => v.clienteId === c.id)
         const total_selos = cVendas.reduce((a, v) => {
           const items = (v.item_vendas as unknown) as { quantidade: number }[]
-          return a + items.reduce((s, i) => s + i.quantidade, 0)
+          return a + items.reduce((s, i) => s + Number(i.quantidade), 0)
         }, 0)
-        const total_gasto = cVendas.reduce((a, v) => a + v.total, 0)
-        const selos_usados = recomp!.filter(r => r.cliente_id === c.id).reduce((a, r) => a + r.selos_utilizados, 0)
-        const selos_disponiveis = total_selos - selos_usados
+        const total_gasto = cVendas.reduce((a, v) => a + Number(v.total), 0)
+        const selos_disponiveis = total_selos
         const recompensas_ganhas = Math.floor(selos_disponiveis / meta)
-        const ultima_compra = cVendas.length > 0
-          ? cVendas.sort((a, b) => 0)[0]?.id ?? null
-          : null
 
         return {
           ...c,
           total_selos,
-          selos_usados,
+          selos_usados: 0,
           selos_disponiveis,
           recompensas_ganhas,
           total_gasto,
-          ultima_compra,
+          ultima_compra: null,
         } as ClienteData
       })
     },
@@ -600,17 +581,7 @@ export default function ClientesPage() {
   })
 
   const darPremio = useMutation({
-    mutationFn: async (clienteId: string) => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Não autenticado')
-      const { error } = await supabase.from('recompensas').insert({
-        user_id: user.id,
-        cliente_id: clienteId,
-        selos_utilizados: meta,
-        observacao: descricao,
-      })
-      if (error) throw error
-    },
+    mutationFn: async (_clienteId: string) => { /* loyalty rewards not yet implemented */ },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['clientes'] }),
   })
 
@@ -629,12 +600,6 @@ export default function ClientesPage() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               className="icon-btn"
-              onClick={() => setConfigSheet(true)}
-              style={{ width: 44, height: 44, borderRadius: 14, fontSize: 18 }}
-              title="Configurar cartão"
-            >⚙️</button>
-            <button
-              className="icon-btn"
               onClick={() => setAddSheet(true)}
               style={{
                 width: 44, height: 44, borderRadius: 14,
@@ -647,27 +612,6 @@ export default function ClientesPage() {
           </div>
         }
       />
-
-      {/* Config banner */}
-      <div style={{ padding: '0 20px 12px' }}>
-        <div style={{
-          padding: '10px 14px', borderRadius: 14,
-          background: 'rgba(255,199,54,.06)', border: '1px solid rgba(255,199,54,.2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          cursor: 'pointer',
-        }} onClick={() => setConfigSheet(true)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>🔥</span>
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 700 }}>Cartão fidelidade ativo</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-mute)' }}>
-                {meta} selos = {descricao}
-              </div>
-            </div>
-          </div>
-          <span style={{ fontSize: 11, color: 'var(--accent-2)', fontWeight: 600 }}>Editar →</span>
-        </div>
-      </div>
 
       {/* Prontos para prêmio */}
       {prontoParaPremio.length > 0 && (
@@ -770,7 +714,6 @@ export default function ClientesPage() {
       <div style={{ height: 16 }} />
 
       {addSheet && <AddClienteSheet onClose={() => setAddSheet(false)} />}
-      {configSheet && <ConfigSheet config={fidConfig ? { selos: fidConfig.selos_para_recompensa, descricao: fidConfig.descricao_recompensa } : null} onClose={() => setConfigSheet(false)} />}
       {selectedCliente && (
         <ClienteDetailSheet
           c={selectedCliente}
