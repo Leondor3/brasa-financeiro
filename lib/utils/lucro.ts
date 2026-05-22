@@ -34,10 +34,10 @@ export async function getEstoqueAtual(tenantId: string) {
     precoCusto: Number(r.precoCusto),
     rendimento: Number(r.rendimento),
     quantidade: Number(r.quantidade),
-    faturamentoPotencial: Number(r.quantidade) * Number(r.rendimento) * Number(r.preco_venda),
+    faturamentoPotencial: Number(r.quantidade) * Number(r.rendimento) * Number(r.precoVenda),
     lucroPotencial:
-      Number(r.quantidade) * Number(r.rendimento) * Number(r.preco_venda) -
-      Number(r.quantidade) * Number(r.preco_custo),
+      Number(r.quantidade) * Number(r.rendimento) * Number(r.precoVenda) -
+      Number(r.quantidade) * Number(r.precoCusto),
   }))
 }
 
