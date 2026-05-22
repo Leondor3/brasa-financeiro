@@ -1,0 +1,310 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  nome      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  users              User[]
+  produtos           Produto[]
+  compras            Compra[]
+  vendas             Venda[]
+  clientes           Cliente[]
+  estoqueMovimentos  EstoqueMovimento[]
+  ledger             LedgerEntry[]
+  metas              Meta[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  tenantId  String
+  nome      String
+  email     String   @unique
+  role      UserRole @default(OPERADOR)
+  createdAt DateTime @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  vendas Venda[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  DONO
+  OPERADOR
+}
+
+model Produto {
+  id          String        @id @default(cuid())
+  tenantId    String
+  nome        String
+  unidade     UnidadeMedida
+  precoCusto  Decimal       @db.Decimal(10, 2)
+  precoVenda  Decimal       @db.Decimal(10, 2)
+  rendimento  Decimal       @db.Decimal(10, 4) @default(1)
+  tipo        ProdutoTipo
+  ativo       Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  itensVenda        ItemVenda[]
+  compraItens       CompraItem[]
+  estoqueMovimentos EstoqueMovimento[]
+
+  @@index([tenantId])
+  @@index([tenantId, ativo])
+  @@map("produtos")
+}
+
+enum UnidadeMedida {
+  KG
+  UNIDADE
+  LITRO
+  PACOTE
+}
+
+enum ProdutoTipo {
+  INSUMO
+  PRODUTO_FINAL
+}
+
+model Compra {
+  id         String     @id @default(cuid())
+  tenantId   String
+  fornecedor String?
+  total      Decimal    @db.Decimal(10, 2)
+  notas      String?
+  dataCompra DateTime   @default(now())
+  createdAt  DateTime   @default(now())
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id])
+  itens  CompraItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, dataCompra])
+  @@map("compras")
+}
+
+model CompraItem {
+  id            String  @id @default(cuid())
+  compraId      String
+  produtoId     String
+  quantidade    Decimal @db.Decimal(10, 4)
+  precoUnitario Decimal @db.Decimal(10, 2)
+  subtotal      Decimal @db.Decimal(10, 2)
+
+  compra  Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@map("compra_itens")
+}
+
+model EstoqueMovimento {
+  id              String               @id @default(cuid())
+  tenantId        String
+  produtoId       String
+  quantidadeDelta Decimal              @db.Decimal(10, 4)
+  tipo            EstoqueMovimentoTipo
+  referenciaId    String?
+  referenciaTipo  String?
+  custo           Decimal?             @db.Decimal(10, 2)
+  notas           String?
+  criadoEm        DateTime             @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@index([tenantId, produtoId])
+  @@index([tenantId, criadoEm])
+  @@index([referenciaId])
+  @@map("estoque_movimentos")
+}
+
+enum EstoqueMovimentoTipo {
+  COMPRA
+  PRODUCAO
+  VENDA
+  AJUSTE_MANUAL
+  PERDA
+}
+
+model Venda {
+  id             String         @id @default(cuid())
+  tenantId       String
+  userId         String
+  clienteId      String?
+  total          Decimal        @db.Decimal(10, 2)
+  formaPagamento FormaPagamento
+  status         VendaStatus    @default(PAGA)
+  notas          String?
+  vendidoEm      DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+
+  tenant  Tenant      @relation(fields: [tenantId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+  cliente Cliente?    @relation(fields: [clienteId], references: [id])
+  itens   ItemVenda[]
+  fiado   Fiado?
+
+  @@index([tenantId])
+  @@index([tenantId, vendidoEm])
+  @@index([tenantId, status])
+  @@index([tenantId, clienteId])
+  @@map("vendas")
+}
+
+model ItemVenda {
+  id            String  @id @default(cuid())
+  vendaId       String
+  produtoId     String
+  quantidade    Decimal @db.Decimal(10, 4)
+  precoUnitario Decimal @db.Decimal(10, 2)
+  custoUnitario Decimal @db.Decimal(10, 2)
+  subtotal      Decimal @db.Decimal(10, 2)
+
+  venda   Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@map("item_vendas")
+}
+
+enum FormaPagamento {
+  DINHEIRO
+  PIX
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  FIADO
+}
+
+enum VendaStatus {
+  PAGA
+  FIADO
+  CANCELADA
+}
+
+model Cliente {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nome      String
+  telefone  String?
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  vendas Venda[]
+  fiado  Fiado[]
+
+  @@index([tenantId])
+  @@map("clientes")
+}
+
+model Fiado {
+  id            String      @id @default(cuid())
+  tenantId      String
+  clienteId     String
+  vendaId       String      @unique
+  valorOriginal Decimal     @db.Decimal(10, 2)
+  valorPago     Decimal     @db.Decimal(10, 2) @default(0)
+  status        FiadoStatus @default(ABERTO)
+  vencimento    DateTime?
+  criadoEm      DateTime    @default(now())
+  quitadoEm     DateTime?
+
+  cliente    Cliente          @relation(fields: [clienteId], references: [id])
+  venda      Venda            @relation(fields: [vendaId], references: [id])
+  pagamentos FiadoPagamento[]
+
+  @@index([tenantId, status])
+  @@index([clienteId])
+  @@map("fiados")
+}
+
+model FiadoPagamento {
+  id      String   @id @default(cuid())
+  fiadoId String
+  valor   Decimal  @db.Decimal(10, 2)
+  pagoEm  DateTime @default(now())
+  notas   String?
+
+  fiado Fiado @relation(fields: [fiadoId], references: [id])
+
+  @@map("fiado_pagamentos")
+}
+
+enum FiadoStatus {
+  ABERTO
+  PARCIAL
+  QUITADO
+}
+
+model LedgerEntry {
+  id             String        @id @default(cuid())
+  tenantId       String
+  tipo           LedgerTipo
+  direcao        LedgerDirecao
+  valor          Decimal       @db.Decimal(10, 2)
+  descricao      String
+  referenciaId   String?
+  referenciaTipo String?
+  categoria      String?
+  ocorridoEm     DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, ocorridoEm])
+  @@index([tenantId, tipo])
+  @@index([tenantId, direcao])
+  @@map("ledger_entries")
+}
+
+enum LedgerTipo {
+  VENDA
+  RECEBIMENTO_FIADO
+  COMPRA_INSUMO
+  DESPESA_OPERACIONAL
+  AJUSTE
+}
+
+enum LedgerDirecao {
+  CREDITO
+  DEBITO
+}
+
+model Meta {
+  id             String      @id @default(cuid())
+  tenantId       String
+  tipo           MetaTipo
+  valorAlvo      Decimal     @db.Decimal(10, 2)
+  periodo        MetaPeriodo
+  referenciaData DateTime
+  atingida       Boolean     @default(false)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, referenciaData])
+  @@map("metas")
+}
+
+enum MetaTipo {
+  FATURAMENTO
+  LUCRO
+  VENDAS_QUANTIDADE
+}
+
+enum MetaPeriodo {
+  DIARIO
+  SEMANAL
+  MENSAL
+}
