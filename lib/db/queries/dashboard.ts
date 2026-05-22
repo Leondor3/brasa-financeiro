@@ -36,10 +36,10 @@ export async function getDashboardData(tenantId: string) {
     prisma.$queryRaw<Array<{ nome: string; qtd: string; receita: string }>>`
       SELECT p.nome, SUM(iv.quantidade)::text AS qtd, SUM(iv.subtotal)::text AS receita
       FROM item_vendas iv
-      JOIN produtos p ON iv.produto_id = p.id
-      JOIN vendas v ON iv.venda_id = v.id
-      WHERE v.tenant_id = ${tenantId}
-        AND v.vendido_em >= ${inicioSemana}
+      JOIN produtos p ON iv."produtoId" = p.id
+      JOIN vendas v ON iv."vendaId" = v.id
+      WHERE v."tenantId" = ${tenantId}
+        AND v."vendidoEm" >= ${inicioSemana}
         AND v.status = 'PAGA'
       GROUP BY p.id, p.nome
       ORDER BY receita DESC
@@ -49,12 +49,12 @@ export async function getDashboardData(tenantId: string) {
     getEstoqueAtual(tenantId),
 
     prisma.$queryRaw<Array<{ dia: string; valor: string }>>`
-      SELECT DATE(vendido_em)::text AS dia, SUM(total)::text AS valor
+      SELECT DATE("vendidoEm")::text AS dia, SUM(total)::text AS valor
       FROM vendas
-      WHERE tenant_id = ${tenantId}
-        AND vendido_em >= ${inicioSemana}
+      WHERE "tenantId" = ${tenantId}
+        AND "vendidoEm" >= ${inicioSemana}
         AND status = 'PAGA'
-      GROUP BY DATE(vendido_em)
+      GROUP BY DATE("vendidoEm")
       ORDER BY dia
     `,
 

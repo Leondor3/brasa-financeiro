@@ -6,8 +6,8 @@ export async function getEstoqueAtual(tenantId: string) {
     Array<{
       id: string
       nome: string
-      preco_venda: string
-      preco_custo: string
+      precoVenda: string
+      precoCusto: string
       rendimento: string
       quantidade: string
     }>
@@ -15,23 +15,23 @@ export async function getEstoqueAtual(tenantId: string) {
     SELECT
       p.id,
       p.nome,
-      p.preco_venda,
-      p.preco_custo,
+      p."precoVenda",
+      p."precoCusto",
       p.rendimento,
-      COALESCE(SUM(em.quantidade_delta), 0)::text AS quantidade
+      COALESCE(SUM(em."quantidadeDelta"), 0)::text AS quantidade
     FROM produtos p
-    LEFT JOIN estoque_movimentos em ON em.produto_id = p.id AND em.tenant_id = ${tenantId}
-    WHERE p.tenant_id = ${tenantId} AND p.ativo = true
-    GROUP BY p.id, p.nome, p.preco_venda, p.preco_custo, p.rendimento
-    HAVING COALESCE(SUM(em.quantidade_delta), 0) > 0
+    LEFT JOIN estoque_movimentos em ON em."produtoId" = p.id AND em."tenantId" = ${tenantId}
+    WHERE p."tenantId" = ${tenantId} AND p.ativo = true
+    GROUP BY p.id, p.nome, p."precoVenda", p."precoCusto", p.rendimento
+    HAVING COALESCE(SUM(em."quantidadeDelta"), 0) > 0
     ORDER BY p.nome
   `
 
   return rows.map((r) => ({
     id: r.id,
     nome: r.nome,
-    precoVenda: Number(r.preco_venda),
-    precoCusto: Number(r.preco_custo),
+    precoVenda: Number(r.precoVenda),
+    precoCusto: Number(r.precoCusto),
     rendimento: Number(r.rendimento),
     quantidade: Number(r.quantidade),
     faturamentoPotencial: Number(r.quantidade) * Number(r.rendimento) * Number(r.preco_venda),
