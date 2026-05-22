@@ -191,10 +191,10 @@ function ProductTile({ p, qty, onAdd, onSub }: { p: Produto; qty: number; onAdd:
       cursor: 'pointer', color: 'inherit', position: 'relative',
       boxShadow: qty > 0 ? '0 8px 24px -10px rgba(255,199,54,.35)' : 'none',
     }}>
-      <div style={{ fontSize: 28, lineHeight: 1, marginBottom: 6 }}>{p.emoji}</div>
+      <div style={{ fontSize: 28, lineHeight: 1, marginBottom: 6 }}>🍖</div>
       <div style={{ fontSize: 14, fontWeight: 700 }}>{p.nome}</div>
       <div style={{ fontSize: 13, color: 'var(--text-mute)', fontWeight: 600, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-        {BRL(p.preco_venda)}
+        {BRL(Number(p.precoVenda))}
       </div>
       {qty > 0 && (
         <div style={{
@@ -286,72 +286,55 @@ export default function VenderPage() {
     },
   })
 
+  const pagamentoEnumMap: Record<string, string> = {
+    PIX: 'PIX', Dinheiro: 'DINHEIRO', Cartão: 'CARTAO_CREDITO', Fiado: 'FIADO',
+  }
+
   const mutation = useMutation({
     mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Não autenticado')
-
       const items = Object.entries(cart).map(([id, qty]) => {
         const p = produtos.find(x => x.id === id)!
-        return { ...p, qty }
+        return { ...p, qty, precoV: Number(p.precoVenda), precoC: Number(p.precoCusto) }
       })
-      const total = items.reduce((a, i) => a + i.preco_venda * i.qty, 0)
-      const lucro = items.reduce((a, i) => a + (i.preco_venda - i.preco_custo) * i.qty, 0)
+      const total = items.reduce((a, i) => a + i.precoV * i.qty, 0)
 
       // 1. Resolve cliente
-      let clienteId: string | null = null
+      let clienteId: string | undefined
       if (cliente) {
         if (cliente.id === 'new') {
-          const { data: novo, error: ce } = await supabase.from('clientes').insert({
-            user_id: user.id, nome: cliente.nome,
-          }).select('id').single()
-          if (ce) throw ce
+          const res = await fetch('/api/clientes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: cliente.nome }),
+          })
+          if (!res.ok) throw new Error('Erro ao criar cliente')
+          const novo = await res.json()
           clienteId = novo.id
         } else {
           clienteId = cliente.id
         }
       }
 
-      // 2. Insere venda
-      const { data: venda, error: ve } = await supabase.from('vendas').insert({
-        user_id: user.id,
-        total: Math.round(total * 100) / 100,
-        lucro: Math.round(lucro * 100) / 100,
-        forma_pagamento: pagamento,
-        cliente_id: clienteId,
-      }).select().single()
-      if (ve) throw ve
-
-      // 3. Insere itens
-      const { error: ie } = await supabase.from('item_vendas').insert(
-        items.map(i => ({
-          venda_id: venda.id, produto_id: i.id, quantidade: i.qty,
-          preco_unitario: i.preco_venda, custo_unitario: i.preco_custo,
-          subtotal: Math.round(i.preco_venda * i.qty * 100) / 100,
-        }))
-      )
-      if (ie) throw ie
-
-      // 4. Movimentos de estoque
-      const { error: me } = await supabase.from('estoque_movimentos').insert(
-        items.map(i => ({
-          user_id: user.id, produto_id: i.id, quantidade_delta: -i.qty,
-          tipo: 'venda', referencia_id: venda.id,
-        }))
-      )
-      if (me) throw me
-
-      // 5. Fiado
-      if (pagamento === 'Fiado' && clienteId) {
-        const { error: fe } = await supabase.from('fiados').insert({
-          user_id: user.id, cliente_id: clienteId, venda_id: venda.id,
-          valor_original: Math.round(total * 100) / 100, valor_pago: 0, status: 'aberto',
-        })
-        if (fe) throw fe
-        qc.invalidateQueries({ queryKey: ['fiados'] })
-      }
+      // 2. Registra venda via API (inclui ledger + estoque)
+      const res = await fetch('/api/vendas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clienteId,
+          formaPagamento: pagamentoEnumMap[pagamento] ?? 'PIX',
+          itens: items.map(i => ({
+            produtoId: i.id,
+            quantidade: i.qty,
+            precoUnitario: i.precoV,
+            custoUnitario: i.precoC,
+          })),
+        }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? 'Erro na venda') }
+      const venda = await res.json()
 
       if (clienteId) qc.invalidateQueries({ queryKey: ['clientes'] })
+      if (pagamento === 'Fiado') qc.invalidateQueries({ queryKey: ['fiados'] })
       return { venda, total, qty: items.reduce((a, i) => a + i.qty, 0) }
     },
     onSuccess: ({ total, qty }) => {
@@ -371,10 +354,10 @@ export default function VenderPage() {
 
   const items = Object.entries(cart).map(([id, qty]) => {
     const p = produtos.find(x => x.id === id)!
-    return { ...p, qty }
+    return { ...p, qty, precoV: Number(p.precoVenda), precoC: Number(p.precoCusto) }
   })
-  const total    = items.reduce((a, i) => a + i.preco_venda * i.qty, 0)
-  const lucro    = items.reduce((a, i) => a + (i.preco_venda - i.preco_custo) * i.qty, 0)
+  const total    = items.reduce((a, i) => a + i.precoV * i.qty, 0)
+  const lucro    = items.reduce((a, i) => a + (i.precoV - i.precoC) * i.qty, 0)
   const totalQty = items.reduce((a, i) => a + i.qty, 0)
 
   const canConfirm = !mutation.isPending && (pagamento !== 'Fiado' || cliente !== null)
@@ -418,9 +401,9 @@ export default function VenderPage() {
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-mute)', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 8 }}>Resumo</div>
               {items.map(i => (
                 <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
-                  <span style={{ fontSize: 18 }}>{i.emoji}</span>
+                  <span style={{ fontSize: 18 }}>🍖</span>
                   <span style={{ flex: 1, fontSize: 13.5 }}>{i.qty}× {i.nome}</span>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{BRL(i.preco_venda * i.qty)}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{BRL(i.precoV * i.qty)}</span>
                 </div>
               ))}
               <div style={{ height: 1, background: 'var(--hairline)', margin: '10px 0' }} />

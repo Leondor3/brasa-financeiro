@@ -48,12 +48,12 @@ function NovaCompraSheet({
   const [fornecedor, setFornecedor] = useState('')
 
   const produto = produtos.find(p => p.id === produtoId)
-  const [preco, setPreco] = useState(() => produtos[0]?.preco_custo ?? 0)
+  const [preco, setPreco] = useState(() => Number(produtos[0]?.precoCusto ?? 0))
 
   const handleProduto = (id: string) => {
     setProdutoId(id)
     const p = produtos.find(x => x.id === id)
-    if (p) setPreco(p.preco_custo)
+    if (p) setPreco(Number(p.precoCusto))
   }
 
   const total = qty * preco

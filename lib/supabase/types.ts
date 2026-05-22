@@ -55,7 +55,25 @@ export type Database = {
   }
 }
 
-export type Produto = Database['public']['Tables']['produtos']['Row']
+// Tipo alinhado com o schema Prisma atual (camelCase)
+export type Produto = {
+  id: string
+  tenantId: string
+  nome: string
+  unidade: string
+  precoCusto: string
+  precoVenda: string
+  rendimento: string
+  tipo: string
+  ativo: boolean
+  createdAt: string
+  updatedAt: string
+  // Campos legados — podem ser undefined em queries do novo schema
+  preco_venda?: number
+  preco_custo?: number
+  emoji?: string
+  user_id?: string
+}
 export type Venda   = Database['public']['Tables']['vendas']['Row']
 export type Compra  = Database['public']['Tables']['compras']['Row']
 export type Cliente = Database['public']['Tables']['clientes']['Row']
