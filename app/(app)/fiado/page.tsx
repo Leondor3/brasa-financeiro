@@ -24,16 +24,16 @@ function diasAtras(iso: string) {
 
 interface FiadoItem {
   id: string
-  valor_original: number
-  valor_pago: number
+  valorOriginal: number
+  valorPago: number
   status: string
-  created_at: string
+  criadoEm: string
   cliente: { id: string; nome: string; telefone: string | null }
 }
 
 function FiadoCard({ f, onReceber }: { f: FiadoItem; onReceber: (id: string) => void }) {
-  const dias = diasAtras(f.created_at)
-  const restante = f.valor_original - f.valor_pago
+  const dias = diasAtras(f.criadoEm)
+  const restante = f.valorOriginal - f.valorPago
   const color = dias >= 7 ? COLORS.late : dias >= 3 ? COLORS.warn : COLORS.ok
   const iniciais = f.cliente.nome.split(' ').slice(0, 2).map(n => n[0].toUpperCase()).join('')
 
@@ -102,9 +102,9 @@ export default function FiadoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fiados')
-        .select('id, valor_original, valor_pago, status, created_at, clientes(id, nome, telefone)')
-        .eq('status', 'aberto')
-        .order('created_at', { ascending: true })
+        .select('id, valorOriginal, valorPago, status, criadoEm, clientes(id, nome, telefone)')
+        .eq('status', 'ABERTO')
+        .order('criadoEm', { ascending: true })
       if (error) throw error
       return data.map(f => ({
         ...f,
@@ -120,7 +120,7 @@ export default function FiadoPage() {
       if (!fiado) throw new Error('Fiado não encontrado')
       const { error } = await supabase
         .from('fiados')
-        .update({ valor_pago: fiado.valor_original, status: 'pago' })
+        .update({ valorPago: fiado.valorOriginal, status: 'QUITADO' })
         .eq('id', id)
       if (error) throw error
     },
@@ -130,12 +130,12 @@ export default function FiadoPage() {
     },
   })
 
-  const totalAberto = fiados.reduce((a, f) => a + (f.valor_original - f.valor_pago), 0)
-  const atrasados = fiados.filter(f => diasAtras(f.created_at) >= 7)
+  const totalAberto = fiados.reduce((a, f) => a + (f.valorOriginal - f.valorPago), 0)
+  const atrasados = fiados.filter(f => diasAtras(f.criadoEm) >= 7)
 
   const sorted = [...fiados].sort((a, b) => {
-    if (sort === 'atraso') return diasAtras(b.created_at) - diasAtras(a.created_at)
-    if (sort === 'valor')  return (b.valor_original - b.valor_pago) - (a.valor_original - a.valor_pago)
+    if (sort === 'atraso') return diasAtras(b.criadoEm) - diasAtras(a.criadoEm)
+    if (sort === 'valor')  return (b.valorOriginal - b.valorPago) - (a.valorOriginal - a.valorPago)
     return a.cliente.nome.localeCompare(b.cliente.nome)
   })
 

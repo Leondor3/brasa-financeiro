@@ -19,8 +19,16 @@ function BRLshort(v: number) {
   return 'R$' + v.toFixed(0)
 }
 
+const PAGAMENTO_LABEL: Record<string, string> = {
+  PIX: 'PIX', DINHEIRO: 'Dinheiro',
+  CARTAO_CREDITO: 'Cartão', CARTAO_DEBITO: 'Débito', FIADO: 'Fiado',
+}
+
 function tipoFromPagamento(p: string): LiveEvent['tipo'] {
-  const m: Record<string, LiveEvent['tipo']> = { PIX: 'pix', Dinheiro: 'dinheiro', Cartão: 'cartao', Fiado: 'fiado' }
+  const m: Record<string, LiveEvent['tipo']> = {
+    PIX: 'pix', DINHEIRO: 'dinheiro',
+    CARTAO_CREDITO: 'cartao', CARTAO_DEBITO: 'cartao', FIADO: 'fiado',
+  }
   return m[p] ?? 'pix'
 }
 
@@ -31,7 +39,7 @@ function firstOfMonthISO() {
   const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.toISOString()
 }
 
-function StockLive({ estoque }: { estoque: { nome: string; emoji: string; qtd: number }[] }) {
+function StockLive({ estoque }: { estoque: { nome: string; qtd: number }[] }) {
   const top3 = estoque.slice(0, 3)
   if (!top3.length) return (
     <div className="card" style={{ padding: '20px 16px' }}>
@@ -47,7 +55,7 @@ function StockLive({ estoque }: { estoque: { nome: string; emoji: string; qtd: n
         const pct = Math.max(0, Math.min(100, (t.qtd / max) * 100))
         return (
           <div key={t.nome} className={'stock-live-row is-' + level}>
-            <div className="em">{t.emoji}</div>
+            <div className="em">🍖</div>
             <div className="info">
               <div className="name-row">
                 <span>{t.nome}</span>
@@ -84,15 +92,21 @@ export default function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vendas')
-        .select('total, lucro, forma_pagamento')
-        .gte('created_at', todayISO())
+        .select('total,formaPagamento,item_vendas(quantidade,precoUnitario,custoUnitario)')
+        .gte('vendidoEm', todayISO())
+        .eq('status', 'PAGA')
       if (error) throw error
-      return {
-        vendido: data.reduce((a, v) => a + (v.forma_pagamento !== 'Fiado' ? v.total : 0), 0),
-        lucro:   data.reduce((a, v) => a + v.lucro, 0),
-        fiado:   data.reduce((a, v) => a + (v.forma_pagamento === 'Fiado' ? v.total : 0), 0),
-        pedidos: data.length,
+      let vendido = 0, lucro = 0, fiado = 0
+      for (const v of data) {
+        const total = Number(v.total)
+        if (v.formaPagamento === 'FIADO') { fiado += total; continue }
+        vendido += total
+        const itens = (v.item_vendas as unknown) as { quantidade: number; precoUnitario: number; custoUnitario: number }[]
+        for (const i of (itens ?? [])) {
+          lucro += (Number(i.precoUnitario) - Number(i.custoUnitario)) * Number(i.quantidade)
+        }
       }
+      return { vendido, lucro, fiado, pedidos: data.length }
     },
     refetchInterval: 20000,
   })
@@ -102,21 +116,21 @@ export default function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vendas')
-        .select('id, total, forma_pagamento, created_at, item_vendas(quantidade, produtos(nome))')
-        .order('created_at', { ascending: false })
+        .select('id,total,formaPagamento,vendidoEm,item_vendas(quantidade,produtos(nome))')
+        .order('vendidoEm', { ascending: false })
         .limit(5)
       if (error) throw error
       return data.map(v => {
         const its = (v.item_vendas as unknown) as { quantidade: number; produtos: { nome: string } | null }[]
         const label = its.slice(0, 2).map(i => `${i.quantidade}× ${i.produtos?.nome ?? ''}`).join(' · ')
           + (its.length > 2 ? ` +${its.length - 2}` : '')
-          + ` · ${v.forma_pagamento}`
+          + ` · ${PAGAMENTO_LABEL[v.formaPagamento] ?? v.formaPagamento}`
         return {
           id: v.id,
-          tipo: tipoFromPagamento(v.forma_pagamento),
+          tipo: tipoFromPagamento(v.formaPagamento),
           label,
-          valor: v.total,
-          time: fmtClock(new Date(v.created_at)),
+          valor: Number(v.total),
+          time: fmtClock(new Date(v.vendidoEm)),
         } as LiveEvent
       })
     },
@@ -128,13 +142,13 @@ export default function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('estoque_movimentos')
-        .select('produto_id, quantidade_delta, produtos(nome, emoji)')
+        .select('produtoId,quantidadeDelta,produtos(nome)')
       if (error) throw error
-      const map = new Map<string, { nome: string; emoji: string; qtd: number }>()
+      const map = new Map<string, { nome: string; qtd: number }>()
       for (const m of data) {
-        const p = (m.produtos as unknown) as { nome: string; emoji: string } | null
-        if (!map.has(m.produto_id)) map.set(m.produto_id, { nome: p?.nome ?? '', emoji: p?.emoji ?? '📦', qtd: 0 })
-        map.get(m.produto_id)!.qtd += m.quantidade_delta
+        const p = (m.produtos as unknown) as { nome: string } | null
+        if (!map.has(m.produtoId)) map.set(m.produtoId, { nome: p?.nome ?? '', qtd: 0 })
+        map.get(m.produtoId)!.qtd += Number(m.quantidadeDelta)
       }
       return Array.from(map.values()).sort((a, b) => a.qtd - b.qtd)
     },
@@ -146,10 +160,11 @@ export default function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vendas')
-        .select('total, forma_pagamento')
-        .gte('created_at', firstOfMonthISO())
+        .select('total,formaPagamento')
+        .gte('vendidoEm', firstOfMonthISO())
+        .eq('status', 'PAGA')
       if (error) throw error
-      return data.reduce((a, v) => a + (v.forma_pagamento !== 'Fiado' ? v.total : 0), 0)
+      return data.reduce((a, v) => a + (v.formaPagamento !== 'FIADO' ? Number(v.total) : 0), 0)
     },
     refetchInterval: 60000,
   })

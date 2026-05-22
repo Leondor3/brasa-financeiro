@@ -14,7 +14,7 @@ interface ClienteData {
   id: string
   nome: string
   telefone: string | null
-  created_at: string
+  createdAt: string
   total_selos: number       // all items ever bought
   selos_usados: number      // stamps spent on rewards
   selos_disponiveis: number // net available
@@ -445,10 +445,10 @@ function ClienteDetailSheet({
 
 interface FiadoItem {
   id: string
-  valor_original: number
-  valor_pago: number
+  valorOriginal: number
+  valorPago: number
   status: string
-  created_at: string
+  criadoEm: string
   cliente: { id: string; nome: string; telefone: string | null }
 }
 
@@ -457,8 +457,8 @@ function diasAtras(iso: string) {
 }
 
 function FiadoCard({ f, onReceber }: { f: FiadoItem; onReceber: () => void }) {
-  const dias = diasAtras(f.created_at)
-  const restante = f.valor_original - f.valor_pago
+  const dias = diasAtras(f.criadoEm)
+  const restante = f.valorOriginal - f.valorPago
   const iniciais = f.cliente.nome.split(' ').slice(0, 2).map(n => n[0]?.toUpperCase() ?? '').join('')
   const late = dias >= 7; const warn = dias >= 3 && !late
 
@@ -535,7 +535,7 @@ export default function ClientesPage() {
         { data: vendas, error: ve },
         { data: recomp, error: re },
       ] = await Promise.all([
-        supabase.from('clientes').select('id, nome, telefone, created_at').order('nome'),
+        supabase.from('clientes').select('id, nome, telefone, createdAt').order('nome'),
         supabase.from('vendas').select('id, total, cliente_id, item_vendas(quantidade)').not('cliente_id', 'is', null),
         supabase.from('recompensas').select('cliente_id, selos_utilizados'),
       ])
@@ -575,9 +575,9 @@ export default function ClientesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fiados')
-        .select('id, valor_original, valor_pago, status, created_at, clientes(id, nome, telefone)')
-        .eq('status', 'aberto')
-        .order('created_at', { ascending: true })
+        .select('id, valorOriginal, valorPago, status, criadoEm, clientes(id, nome, telefone)')
+        .eq('status', 'ABERTO')
+        .order('criadoEm', { ascending: true })
       if (error) throw error
       return (data ?? []).map(f => ({
         ...f,
@@ -591,8 +591,8 @@ export default function ClientesPage() {
       const fiado = fiados.find(f => f.id === id)
       if (!fiado) return
       const { error } = await supabase.from('fiados').update({
-        valor_pago: fiado.valor_original,
-        status: 'pago',
+        valorPago: fiado.valorOriginal,
+        status: 'QUITADO',
       }).eq('id', id)
       if (error) throw error
     },
@@ -756,7 +756,7 @@ export default function ClientesPage() {
           <div className="section-head" style={{ paddingTop: 0 }}>
             <h2 style={{ color: 'var(--brasa-200)' }}>📒 Fiados em aberto</h2>
             <span style={{ fontSize: 12, color: 'var(--text-mute)' }}>
-              {BRL(fiados.reduce((a, f) => a + f.valor_original - f.valor_pago, 0))}
+              {BRL(fiados.reduce((a, f) => a + f.valorOriginal - f.valorPago, 0))}
             </span>
           </div>
           <div style={{ padding: '0 20px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>

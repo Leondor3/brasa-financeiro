@@ -121,8 +121,8 @@ function SemanaView() {
 
       const { data: vendas, error } = await supabase
         .from('vendas')
-        .select('id, total, lucro, forma_pagamento, created_at, item_vendas(produto_id, quantidade, produtos(nome, emoji))')
-        .gte('created_at', d7ago.toISOString())
+        .select('id, total, formaPagamento, vendidoEm, item_vendas(produtoId, quantidade, precoUnitario, custoUnitario, produtos(nome))')
+        .gte('vendidoEm', d7ago.toISOString())
       if (error) throw error
 
       const hoje = new Date()
@@ -131,13 +131,17 @@ function SemanaView() {
         d.setDate(d.getDate() - (6 - i))
         const ds = dayStart(d), de = dayEnd(d)
         const dayV = vendas.filter(v => {
-          const t = new Date(v.created_at)
-          return t >= ds && t <= de && v.forma_pagamento !== 'Fiado'
+          const t = new Date(v.vendidoEm)
+          return t >= ds && t <= de && v.formaPagamento !== 'FIADO'
         })
+        const dayLucro = dayV.reduce((a, v) => {
+          const items = (v.item_vendas as unknown) as { precoUnitario: number; custoUnitario: number; quantidade: number }[]
+          return a + items.reduce((s, it) => s + (it.precoUnitario - it.custoUnitario) * it.quantidade, 0)
+        }, 0)
         return {
           label: DIAS_PT[d.getDay()],
           value: dayV.reduce((a, v) => a + v.total, 0),
-          lucro: dayV.reduce((a, v) => a + v.lucro, 0),
+          lucro: dayLucro,
           isToday: d.toDateString() === hoje.toDateString(),
         }
       })
@@ -153,12 +157,12 @@ function SemanaView() {
       // Most sold product
       const prodMap = new Map<string, { nome: string; emoji: string; qty: number }>()
       for (const v of vendas) {
-        for (const item of ((v.item_vendas as unknown) as { produto_id: string; quantidade: number; produtos: { nome: string; emoji: string } | null }[])) {
+        for (const item of ((v.item_vendas as unknown) as { produtoId: string; quantidade: number; produtos: { nome: string } | null }[])) {
           const p = item.produtos
           if (!p) continue
-          const cur = prodMap.get(item.produto_id) ?? { nome: p.nome, emoji: p.emoji, qty: 0 }
+          const cur = prodMap.get(item.produtoId) ?? { nome: p.nome, emoji: '🍖', qty: 0 }
           cur.qty += item.quantidade
-          prodMap.set(item.produto_id, cur)
+          prodMap.set(item.produtoId, cur)
         }
       }
       const maisVendido = prodMap.size ? Array.from(prodMap.values()).sort((a, b) => b.qty - a.qty)[0] : null
@@ -239,16 +243,19 @@ function MesView() {
       const firstDay = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
 
       const [{ data: vendas, error: ve }, { data: compras, error: ce }, { data: fiados, error: fe }] = await Promise.all([
-        supabase.from('vendas').select('total, lucro, forma_pagamento').gte('created_at', firstDay.toISOString()),
-        supabase.from('compras').select('total').gte('created_at', firstDay.toISOString()),
-        supabase.from('fiados').select('valor_original, valor_pago').eq('status', 'aberto'),
+        supabase.from('vendas').select('total, formaPagamento, item_vendas(precoUnitario, custoUnitario, quantidade)').gte('vendidoEm', firstDay.toISOString()),
+        supabase.from('compras').select('total').gte('dataCompra', firstDay.toISOString()),
+        supabase.from('fiados').select('valorOriginal, valorPago').eq('status', 'ABERTO'),
       ])
       if (ve) throw ve; if (ce) throw ce; if (fe) throw fe
 
-      const faturamento = vendas!.filter(v => v.forma_pagamento !== 'Fiado').reduce((a, v) => a + v.total, 0)
-      const lucro       = vendas!.reduce((a, v) => a + v.lucro, 0)
+      const faturamento = vendas!.filter(v => v.formaPagamento !== 'FIADO').reduce((a, v) => a + v.total, 0)
+      const lucro       = vendas!.reduce((a, v) => {
+        const items = (v.item_vendas as unknown) as { precoUnitario: number; custoUnitario: number; quantidade: number }[]
+        return a + items.reduce((s, it) => s + (it.precoUnitario - it.custoUnitario) * it.quantidade, 0)
+      }, 0)
       const gastos      = compras!.reduce((a, c) => a + c.total, 0)
-      const aReceber    = fiados!.reduce((a, f) => a + (f.valor_original - f.valor_pago), 0)
+      const aReceber    = fiados!.reduce((a, f) => a + (f.valorOriginal - f.valorPago), 0)
       const margem      = faturamento > 0 ? Math.round((lucro / faturamento) * 100) : 0
 
       const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate()

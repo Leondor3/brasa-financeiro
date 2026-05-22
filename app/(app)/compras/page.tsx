@@ -30,9 +30,9 @@ interface CompraRow {
   nome: string
   quantidade: number
   fornecedor: string | null
-  preco_unitario: number
+  precoUnitario: number
   subtotal: number
-  created_at: string
+  dataCompra: string
 }
 
 function NovaCompraSheet({
@@ -72,17 +72,17 @@ function NovaCompraSheet({
 
       const { error: ie } = await supabase.from('compra_itens').insert({
         compra_id: compra.id,
-        produto_id: produtoId,
+        produtoId: produtoId,
         quantidade: qty,
-        preco_unitario: preco,
+        precoUnitario: preco,
         subtotal: Math.round(total * 100) / 100,
       })
       if (ie) throw ie
 
       const { error: me } = await supabase.from('estoque_movimentos').insert({
         user_id: user.id,
-        produto_id: produtoId,
-        quantidade_delta: qty,
+        produtoId: produtoId,
+        quantidadeDelta: qty,
         tipo: 'compra',
         referencia_id: compra.id,
       })
@@ -150,7 +150,7 @@ function NovaCompraSheet({
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
-                <span>{p.emoji}</span> {p.nome}
+                <span>{p.emoji ?? '🍖'}</span> {p.nome}
               </button>
             ))}
           </div>
@@ -241,22 +241,22 @@ export default function ComprasPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('compras')
-        .select('id, fornecedor, total, created_at, compra_itens(quantidade, preco_unitario, subtotal, produtos(nome, emoji))')
-        .order('created_at', { ascending: false })
+        .select('id, fornecedor, total, dataCompra, compra_itens(quantidade, precoUnitario, subtotal, produtos(nome))')
+        .order('dataCompra', { ascending: false })
         .limit(50)
       if (error) throw error
       const rows: CompraRow[] = []
       for (const c of data) {
         for (const item of (c.compra_itens as any[])) {
           rows.push({
-            id: c.id + item.produto_id,
-            emoji: item.produtos?.emoji ?? '📦',
+            id: c.id + (item.produtoId ?? ''),
+            emoji: '🍖',
             nome: item.produtos?.nome ?? '',
             quantidade: item.quantidade,
             fornecedor: c.fornecedor,
-            preco_unitario: item.preco_unitario,
+            precoUnitario: item.precoUnitario,
             subtotal: item.subtotal,
-            created_at: c.created_at,
+            dataCompra: c.dataCompra,
           })
         }
       }
@@ -264,9 +264,9 @@ export default function ComprasPage() {
     },
   })
 
-  const hojeTotal = compras.filter(c => new Date(c.created_at) >= new Date(todayISO())).reduce((a, c) => a + c.subtotal, 0)
-  const mesTotal  = compras.filter(c => new Date(c.created_at) >= new Date(firstOfMonthISO())).reduce((a, c) => a + c.subtotal, 0)
-  const hojeCount = compras.filter(c => new Date(c.created_at) >= new Date(todayISO())).length
+  const hojeTotal = compras.filter(c => new Date(c.dataCompra) >= new Date(todayISO())).reduce((a, c) => a + c.subtotal, 0)
+  const mesTotal  = compras.filter(c => new Date(c.dataCompra) >= new Date(firstOfMonthISO())).reduce((a, c) => a + c.subtotal, 0)
+  const hojeCount = compras.filter(c => new Date(c.dataCompra) >= new Date(todayISO())).length
 
   return (
     <div className="screen-fade">
@@ -344,7 +344,7 @@ export default function ComprasPage() {
                     <span style={{ color: 'var(--text-mute)', fontWeight: 500, marginLeft: 6 }}>{c.quantidade}×</span>
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--text-mute)', marginTop: 2 }}>
-                    {c.fornecedor ? c.fornecedor + ' · ' : ''}{diasAtras(c.created_at)}
+                    {c.fornecedor ? c.fornecedor + ' · ' : ''}{diasAtras(c.dataCompra)}
                   </div>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--red-400)', fontVariantNumeric: 'tabular-nums' }}>
