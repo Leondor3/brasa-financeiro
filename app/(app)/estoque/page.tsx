@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { formatBRL } from '@/lib/utils/currency'
-import { calcularMargem } from '@/lib/utils/lucro'
+import { calcularMargem } from '@/lib/utils/calc'
 import { Package } from 'lucide-react'
 
 interface ItemEstoque {

@@ -1,11 +1,6 @@
 import { prisma } from '@/lib/db/client'
 import { startOfDay, endOfDay } from 'date-fns'
 
-export function calcularMargem(precoVenda: number, precoCusto: number): number {
-  if (precoVenda === 0) return 0
-  return ((precoVenda - precoCusto) / precoVenda) * 100
-}
-
 export async function getEstoqueAtual(tenantId: string) {
   const rows = await prisma.$queryRaw<
     Array<{
